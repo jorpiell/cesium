@@ -472,17 +472,15 @@ define([
     /**
      * @private
      */
-    Cesium3DTileBatchTable.prototype.getVertexShaderCallback = function() {
+    Cesium3DTileBatchTable.prototype.getVertexShaderCallback = function(handleTranslucent) {
         if (this.featuresLength === 0) {
             return;
         }
 
         var that = this;
-        return function(source, handleTranslucent) {
+        return function(source) {
             var renamedSource = ShaderSource.replaceMain(source, 'tile_main');
             var newMain;
-
-            handleTranslucent = defaultValue(handleTranslucent, true);
 
             if (ContextLimits.maximumVertexTextureImageUnits > 0) {
                 // When VTF is supported, perform per-feature show/hide in the vertex shader
@@ -534,54 +532,84 @@ define([
         };
     };
 
-    Cesium3DTileBatchTable.prototype.getFragmentShaderCallback = function() {
+    function replaceDiffuseUniform(source, diffuseUniformName, replaceName) {
+        // TODO: support array uniforms. How common is this case?
+        var regex = new RegExp('uniform\\s+(vec[34]|sampler2D)\\s+' + diffuseUniformName + ';');
+        var uniformMatch = source.match(regex);
+
+        //>>includeStart('debug', pragmas.debug);
+        if (!defined(uniformMatch)) {
+            throw new DeveloperError('Could not find uniform declaration for ' + diffuseUniformName + ' of type vec3, vec4, or sampler2D');
+        }
+        //>>includeEnd('debug');
+
+        var declaration = uniformMatch[0];
+        var type = uniformMatch[1];
+
+        // Remove uniform for global replace to work
+        source = source.replace(declaration, '');
+
+        // Replace all occurrences of the uniform with the replace name
+        if (type === 'vec3') {
+            regex = new RegExp(diffuseUniformName, 'g');
+            source = source.replace(regex, replaceName + '.xyz');
+        } else if (type === 'vec4') {
+            regex = new RegExp(diffuseUniformName, 'g');
+            source = source.replace(regex, replaceName);
+        } else if (type === 'sampler2D') {
+            // TODO : replace texture with solid color, or multiply?
+            regex = new RegExp('texture2D\(\s*' + diffuseUniformName + '.*?\)', 'g');
+            source = source.replace(regex, replaceName);
+        }
+
+        // Add uniform back
+
+
+        return source;
+    }
+
+    Cesium3DTileBatchTable.prototype.getFragmentShaderCallback = function(handleTranslucent, colorBlendMode, diffuseUniformName) {
         if (this.featuresLength === 0) {
             return;
         }
 
-        return function(source, handleTranslucent) {
+        // TODO : this check should not be here...
+        //>>includeStart('debug', pragmas.debug);
+        if (colorBlendMode === 'replace' && !defined(diffuseUniformName)) {
+            throw new DeveloperError('The diffuse color parameter must have a _3DTILESDIFFUSE semantic assigned to it when color replacement is used');
+        }
+        //>>includeEnd('debug');
+
+        return function(source) {
             //TODO: generate entire shader at runtime?
-            //var diffuse = 'diffuse = u_diffuse;';
-            //var diffuseTexture = 'diffuse = texture2D(u_diffuse, v_texcoord0);';
-            //if (ContextLimits.maximumVertexTextureImageUnits > 0) {
-            //    source = 'varying vec3 tile_featureColor; \n' + source;
-            //    source = source.replace(diffuse, 'diffuse.rgb = tile_featureColor;');
-            //    source = source.replace(diffuseTexture, 'diffuse.rgb = texture2D(u_diffuse, v_texcoord0).rgb * tile_featureColor;');
-            //} else {
-            //    source =
-            //        'uniform sampler2D tile_batchTexture; \n' +
-            //        'varying vec2 tile_featureSt; \n' +
-            //        source;
-            //
-            //    var readColor =
-            //        'vec4 featureProperties = texture2D(tile_batchTexture, tile_featureSt); \n' +
-            //        'if (featureProperties.a == 0.0) { \n' +
-            //        '    discard; \n' +
-            //        '}';
-            //
-            //    source = source.replace(diffuse, readColor + 'diffuse.rgb = featureProperties.rgb;');
-            //    source = source.replace(diffuseTexture, readColor + 'diffuse.rgb = texture2D(u_diffuse, v_texcoord0).rgb * featureProperties.rgb;');
-            //}
-            //
-            //return source;
-
-            // TODO: support both "replace" and "highlight" color?  Highlight is below, replace is commented out above
             var renamedSource = ShaderSource.replaceMain(source, 'tile_main');
-            var newMain;
-
-            handleTranslucent = defaultValue(handleTranslucent, true);
+            var newSource;
 
             if (ContextLimits.maximumVertexTextureImageUnits > 0) {
                 // When VTF is supported, per-feature show/hide already happened in the fragment shader
-                newMain =
-                    'varying vec4 tile_featureColor; \n' +
-                    'void main() \n' +
-                    '{ \n' +
-                    '    tile_main(); \n' +
-                    '    gl_FragColor *= tile_featureColor; \n' +
-                    '}';
+                if (colorBlendMode === 'replace') {
+                    renamedSource = replaceDiffuseUniform(renamedSource, diffuseUniformName, 'tile_featureColor');
+                    newSource =
+                        'varying vec4 tile_featureColor; \n' +
+                        renamedSource + '\n' +
+                        'void main() \n' +
+                        '{ \n' +
+                        '    vec4 diffuse = (tile_featureColor.rgb == vec3(1.0)) ? ' + diffuseUniformName + ' : tile_featureColor;' +
+                        '    tile_main(diffuse); \n' +
+                        '    gl_FragColor.a = tile_featureColor.a; \n' +
+                        '}';
+                } else if (colorBlendMode === 'highlight') {
+                    newSource =
+                        renamedSource + '\n' +
+                        'varying vec4 tile_featureColor; \n' +
+                        'void main() \n' +
+                        '{ \n' +
+                        '    tile_main(); \n' +
+                        '    gl_FragColor *= tile_featureColor; \n' +
+                        '}';
+                }
             } else {
-                newMain =
+                newSource =
                     'uniform sampler2D tile_batchTexture; \n' +
                     'uniform bool tile_translucentCommand; \n' +
                     'varying vec2 tile_featureSt; \n' +
@@ -593,7 +621,7 @@ define([
                     '    } \n';
 
                 if (handleTranslucent) {
-                    newMain +=
+                    newSource +=
                         '    bool isStyleTranslucent = (featureProperties.a != 1.0); \n' +
                         '    if (czm_pass == czm_passTranslucent) \n' +
                         '    { \n' +
@@ -610,13 +638,28 @@ define([
                         '        } \n' +
                         '    } \n';
                 }
-                newMain +=
-                    '    tile_main(); \n' +
-                    '    gl_FragColor *= featureProperties; \n' +
-                    '}';
+
+                if (colorBlendMode === 'replace') {
+                    renamedSource = replaceDiffuseUniform(renamedSource, diffuseUniformName, 'featureColor');
+                    newSource =
+                        'vec4 featureColor; \n' +
+                        renamedSource + '\n' +
+                        newSource +
+                        '    featureColor = featureProperties; \n' +
+                        '    tile_main(); \n' +
+                        '    gl_FragColor.a = featureProperties.a; \n' +
+                        '}';
+                } else if (colorBlendMode === 'highlight') {
+                    newSource =
+                        renamedSource + '\n' +
+                        newSource +
+                        '    tile_main(); \n' +
+                        '    gl_FragColor *= featureProperties; \n' +
+                        '}';
+                }
             }
 
-            return renamedSource + '\n' + newMain;
+            return newSource;
         };
     };
 

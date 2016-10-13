@@ -302,17 +302,46 @@ define([
             vertexShaderCached = instancedSource;
 
             if (usesBatchTable) {
-                instancedSource = collection._batchTable.getVertexShaderCallback()(instancedSource);
+                instancedSource = collection._batchTable.getVertexShaderCallback(true)(instancedSource);
             }
 
             return instancedSource;
         };
     }
 
+    // TODO - duplicate of version in Batched3DModel3DTileContent - where is the best place to put this?
+    function getDiffuseUniformName(gltf) {
+        var techniques = gltf.techniques;
+        for (var techniqueName in techniques) {
+            if (techniques.hasOwnProperty(techniqueName)) {
+                var technique = techniques[techniqueName];
+                var parameters = technique.parameters;
+                var uniforms = technique.uniforms;
+                for (var uniformName in uniforms) {
+                    if (uniforms.hasOwnProperty(uniformName)) {
+                        var parameterName = uniforms[uniformName];
+                        var parameter = parameters[parameterName];
+                        var semantic = parameter.semantic;
+                        if (defined(semantic) && (semantic === '_3DTILESDIFFUSE')) {
+                            return uniformName;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     function getFragmentShaderCallback(collection) {
         return function(fs) {
-            if (defined(collection._batchTable)) {
-                fs = collection._batchTable.getFragmentShaderCallback()(fs);
+            var batchTable = collection._batchTable;
+            if (defined(batchTable)) {
+                var colorBlendMode = batchTable._content._tileset._colorBlendMode; // TODO pretty bad
+                var diffuseUniformName;
+                if (colorBlendMode === 'replace') {
+                    var gltf = collection._model.gltf;
+                    diffuseUniformName = getDiffuseUniformName(gltf);
+                }
+                fs = batchTable.getFragmentShaderCallback(true, colorBlendMode, diffuseUniformName)(fs);
             }
             return fs;
         };
@@ -386,7 +415,7 @@ define([
     function getVertexShaderNonInstancedCallback(collection) {
         return function(vs) {
             if (defined(collection._batchTable)) {
-                vs = collection._batchTable.getVertexShaderCallback()(vs);
+                vs = collection._batchTable.getVertexShaderCallback(true)(vs);
                 // Treat a_batchId as a uniform rather than a vertex attribute
                 vs = 'uniform float a_batchId\n;' + vs;
             }

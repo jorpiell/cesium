@@ -817,6 +817,8 @@ define([
         var hasBatchIds = content._hasBatchIds;
         var backFaceCulling = content._backFaceCulling;
         var vertexArray = content._drawCommand.vertexArray;
+        var tileset = content._tileset;
+        var colorBlendMode = tileset._colorBlendMode;
 
         var colorStyleFunction;
         var showStyleFunction;
@@ -886,7 +888,7 @@ define([
             }
         }
 
-        var usesColors = hasColors && (!hasColorStyle || usesColorSemantic);
+        var usesColors = hasColors && (!hasColorStyle || usesColorSemantic || (colorBlendMode !== 'replace'));
         if (hasColors) {
             // Disable the color vertex attribute if the color style does not reference the color semantic
             var colorVertexAttribute = getVertexAttribute(vertexArray, colorLocation);
@@ -1063,8 +1065,8 @@ define([
         var drawFS = fs;
 
         if (hasBatchTable) {
-            drawVS = batchTable.getVertexShaderCallback()(drawVS, false);
-            drawFS = batchTable.getFragmentShaderCallback()(drawFS, false);
+            drawVS = batchTable.getVertexShaderCallback(false)(drawVS);
+            drawFS = batchTable.getFragmentShaderCallback(false, colorBlendMode, 'u_constantColor')(drawFS);
         }
 
         var pickVS = vs;

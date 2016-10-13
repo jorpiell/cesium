@@ -142,6 +142,10 @@ define([
         this._maximumNumberOfLoadedTiles = defaultValue(options.maximumNumberOfLoadedTiles, 256);
         this._styleEngine = new Cesium3DTileStyleEngine();
 
+        // TODO - make this better. Options are 'highlight', 'replace', and 'mix'?
+        // How per-feature colors interact with the source colors
+        this._colorBlendMode = 'replace';
+
         this._modelMatrix = defined(options.modelMatrix) ? Matrix4.clone(options.modelMatrix) : Matrix4.clone(Matrix4.IDENTITY);
 
         /**

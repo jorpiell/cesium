@@ -8,12 +8,12 @@
       "maximum": 9
     },
     "Longitude": {
-      "minimum": -1.3196965755668197,
-      "maximum": -1.3196631390222622
+      "minimum": -1.319693245724349,
+      "maximum": -1.3196616973028332
     },
     "Latitude": {
-      "minimum": 0.6988594930043595,
-      "maximum": 0.6988887365732148
+      "minimum": 0.6988583331514043,
+      "maximum": 0.6988856183458453
     },
     "Height": {
       "minimum": 6,
@@ -35,7 +35,7 @@
     },
     "geometricError": 0,
     "content": {
-      "url": "batchedTranslucentOpaqueMix.b3dm"
+      "url": "batchedTranslucentOpaqueMixRed.b3dm"
     }
   }
 }
